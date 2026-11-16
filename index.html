@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>文本差异对比（手机版）</title>
+<style>
+  :root { --line: #e2e5e9; --bg: #f6f7f9; }
+  html, body { touch-action: pan-y; }  /* 安卓Chrome桌面模式下 meta 被忽略，用CSS禁双击/捏合放大 */
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: var(--bg); color: #1c1e21; }
+  header { position: sticky; top: 0; z-index: 10; background: #fff; border-bottom: 1px solid var(--line);
+           padding: 8px 12px; }
+  h1 { font-size: 16px; margin: 0 0 6px; }
+  .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  button { font-size: 14px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 6px;
+           background: #fff; cursor: pointer; }
+  .opts { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 13px;
+          padding: 8px 12px; }
+  .opts label { display: flex; align-items: center; gap: 4px; }
+  .opts select { font-size: 13px; padding: 2px 4px; }
+  main { padding: 0 8px 24px; }
+  #status { font-size: 13px; color: #666; padding: 4px 4px; min-height: 18px; }
+  #editor { border: 1px solid var(--line); border-radius: 6px; background: #fff; overflow: hidden; }
+  footer { text-align: center; font-size: 12px; color: #999; padding: 12px 0 20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>文本差异对比 <span style="font-weight:400;font-size:12px;color:#999">(Monaco 引擎)</span></h1>
+  <div class="btns">
+    <button id="btn-swap">交换</button>
+    <button id="btn-clear">清空</button>
+    <button id="btn-demo">示例</button>
+    <select id="lang">
+      <option value="text">纯文本</option><option value="css">CSS</option>
+      <option value="javascript">JavaScript</option><option value="json">JSON</option>
+      <option value="html">HTML</option><option value="xml">XML</option>
+      <option value="yaml">YAML</option><option value="sql">SQL</option>
+      <option value="java">Java</option><option value="python">Python</option>
+    </select>
+  </div>
+</header>
+
+<div class="opts">
+  <label><input type="radio" name="view" value="inline"> 单栏</label>
+  <label><input type="radio" name="view" value="side" checked> 并排</label>
+  <label><input type="checkbox" id="opt-collapse"> 折叠相同</label>
+  <label><input type="checkbox" id="opt-trim"> 忽略行首尾空白</label>
+  <label><input type="checkbox" id="opt-wrap" checked> 自动换行</label>
+</div>
+
+<main>
+  <div id="status">直接在左右两栏里粘贴/输入，差异实时标出；行数以多的一侧为准</div>
+  <div id="editor"></div>
+</main>
+<footer>整页上下滚动 · 无内部滚动条 · Monaco Editor (MIT)</footer>
+
+<script src="./monaco/loader.js"></script>
+<script>
+require.config({ paths: { vs: './monaco' } });
+var LANGS = { css:'css', javascript:'javascript', json:'json', html:'html', xml:'xml',
+              yaml:'yaml', sql:'sql', java:'java', python:'python', text:null };
+var $ = function (id) { return document.getElementById(id); };
+var ed = null, mOrig = null, mMod = null;
+
+require(['vs/editor/editor.main'], function () {
+  mOrig = monaco.editor.createModel(BLANK, null);
+  mMod  = monaco.editor.createModel(BLANK, null);
+  ed = monaco.editor.createDiffEditor($('editor'), {
+    originalEditable: true,          // 左栏可直接输入
+    renderSideBySide: true,          // 默认并排
+    automaticLayout: true,
+    scrollBeyondLastLine: false,
+    wordWrap: 'on',
+    diffWordWrap: 'on',
+    ignoreTrimWhitespace: false,
+    renderOverviewRuler: false,
+    scrollbar: { vertical: 'hidden', horizontal: 'auto', alwaysConsumeMouseWheel: false },
+    hideUnchangedRegions: { enabled: false, minimumLineCount: 4, contextLineCount: 3, revealLineCount: 30 },
+    fontSize: 16,   // <16px 会触发手机浏览器输入自动放大
+    lineNumbersMinChars: 4
+  });
+  ed.setModel({ original: mOrig, modified: mMod });
+  // 关键：编辑器高度=内容高度（多的一侧），滚动交给页面
+  ed.onDidContentSizeChange(function (e) {
+    if (e.contentHeight > 0) $('editor').style.height = (e.contentHeight + 20) + 'px';
+  });
+  mOrig.onDidChangeContent(updateStatus);
+  mMod.onDidChangeContent(updateStatus);
+  updateStatus();
+});
+
+var BLANK = '\n\n\n\n';   // 空白默认 5 行
+
+function setStatus(msg) { $('status').textContent = msg; }
+function curLang() { return LANGS[$('lang').value] || null; }
+function updateStatus() {
+  var a = mOrig ? mOrig.getLineCount() : 0, b = mMod ? mMod.getLineCount() : 0;
+  setStatus('实时对比 · 原文 ' + a + ' 行 / 修改后 ' + b + ' 行（视图以 ' +
+            Math.max(a, b) + ' 行为准，行号对齐）');
+}
+function refreshOptions() {
+  ed.updateOptions({
+    renderSideBySide: document.querySelector('input[name=view]:checked').value === 'side',
+    ignoreTrimWhitespace: $('opt-trim').checked,
+    wordWrap: $('opt-wrap').checked ? 'on' : 'off',
+    diffWordWrap: $('opt-wrap').checked ? 'on' : 'off',
+    hideUnchangedRegions: { enabled: $('opt-collapse').checked, minimumLineCount: 4,
+                            contextLineCount: 3, revealLineCount: 30 }
+  });
+}
+$('btn-swap').onclick = function () {
+  if (!ed) return;
+  var t = mOrig.getValue(); mOrig.setValue(mMod.getValue()); mMod.setValue(t);
+};
+$('btn-clear').onclick = function () {
+  if (!ed) return;
+  mOrig.setValue(BLANK); mMod.setValue(BLANK);
+};
+$('btn-demo').onclick = function () {
+  if (!ed) return;
+  mOrig.setValue('body {\n  margin: 0;\n  color: #000000;\n}\n\n.header {\n  display: none;\n  width: 1160px;\n}\n\n.footer {\n  padding: 10px;\n}');
+  mMod.setValue('body {\n  margin: 0;\n  color: #006cbf;\n}\n\n.header {\n  display: block;\n  width: 1165px;\n}\n\n.footer {\n  padding: 10px;\n}');
+};
+$('lang').onchange = function () {
+  if (!mOrig) return;
+  monaco.editor.setModelLanguage(mOrig, curLang());
+  monaco.editor.setModelLanguage(mMod,  curLang());
+};
+Array.prototype.forEach.call(document.querySelectorAll('input[name=view], #opt-collapse, #opt-trim, #opt-wrap'),
+  function (el) { el.onchange = refreshOptions; });
+</script>
+</body>
+</html>
